@@ -1,0 +1,109 @@
+name: terraform/dev
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - "terraform/envs/dev/**"
+      - "app/**"
+  push:
+    branches:
+      - dev
+    paths:
+      - "terraform/envs/dev/**"
+      - "app/**"
+
+env:
+  RUNNING_DIR: terraform/envs/dev
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-plan:
+    name: terraform/plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Configure AWS credentials (OIDC - READ ONLY)
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ secrets.TERRAFORM_READ_ONLY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.6"
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.RUNNING_DIR }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        working-directory: ${{ env.RUNNING_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.RUNNING_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Plan
+        run: terraform plan
+        working-directory: ${{ env.RUNNING_DIR }}
+
+  terraform-apply:
+    name: terraform/apply
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Configure AWS credentials (OIDC - APPLY ROLE)
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ secrets.TERRAFORM_ADMIN_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.6"
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.RUNNING_DIR }}
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.RUNNING_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Plan (Apply Stage)
+        run: terraform plan -out=tfplan
+        working-directory: ${{ env.RUNNING_DIR }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.RUNNING_DIR }}
